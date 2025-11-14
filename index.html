@@ -24,7 +24,7 @@
 .punch{font-size:44px}
 
 /* boss head */
-.boss{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);width:160px;height:160px;border-radius:999px;overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#fff,#eee);box-shadow:0 10px 30px rgba(0,0,0,0.6);border:6px solid rgba(255,255,255,0.04)}
+.boss{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);width:260px;height:260px;border-radius:999px;overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#fff,#eee);box-shadow:0 10px 30px rgba(0,0,0,0.6);border:6px solid rgba(255,255,255,0.04)}
 .boss img{width:100%;height:100%;object-fit:cover;display:block}
 .boss.small{width:120px;height:120px}
 
@@ -228,7 +228,8 @@
     pop.style.position='absolute'
     pop.style.left = (el.offsetLeft) + 'px'
     pop.style.top = (el.offsetTop) + 'px'
-    pop.textContent = 'BOOM'
+    const words=['sorry','pardon me','ouch','ooppps','oh my god'];
+    pop.textContent = words[Math.floor(Math.random()*words.length)]
     pop.style.pointerEvents='none'
     pop.style.fontWeight='700'
     pop.style.opacity='0.95'
