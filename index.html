@@ -1,0 +1,294 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Splash the Boss - GitHub Game</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#ff6b6b;--muted:#94a3b8}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial}
+    body{background:linear-gradient(180deg,#071127 0%, #081827 50%, #03111a 100%);color:#e6eef8;display:flex;align-items:center;justify-content:center}
+    .game-wrap{width:960px;max-width:96vw;background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.02));border-radius:18px;padding:18px;box-shadow:0 10px 40px rgba(2,6,23,0.6)}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:8px;align-items:center}
+    .btn{background:rgba(255,255,255,0.06);border:0;padding:10px 12px;border-radius:10px;color:inherit;cursor:pointer;font-weight:600}
+    .btn:active{transform:translateY(1px)}
+    .hud{display:flex;gap:12px;align-items:center}
+    .counter{background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:8px 12px;border-radius:12px;min-width:88px;text-align:center}
+    .counter b{display:block;font-size:18px}
+    .arena{position:relative;height:540px;border-radius:12px;overflow:hidden;background:radial-gradient(circle at 20% 10%, rgba(255,255,255,0.02), transparent 10%), linear-gradient(180deg,#082133,#02111b);box-shadow:inset 0 6px 40px rgba(0,0,0,0.5)}/* falling items */
+.item{position:absolute;left:0;top:-80px;pointer-events:none;display:flex;align-items:center;justify-content:center;font-size:32px;text-shadow:0 3px 8px rgba(0,0,0,0.6);transform:translateY(0) rotate(0deg)}
+.mud{font-size:34px}
+.punch{font-size:44px}
+
+/* boss head */
+.boss{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);width:160px;height:160px;border-radius:999px;overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#fff,#eee);box-shadow:0 10px 30px rgba(0,0,0,0.6);border:6px solid rgba(255,255,255,0.04)}
+.boss img{width:100%;height:100%;object-fit:cover;display:block}
+.boss.small{width:120px;height:120px}
+
+/* funky particles */
+.confetti{position:absolute;pointer-events:none;inset:0;mix-blend-mode:screen}
+
+/* helper overlay */
+.hint{position:absolute;top:10px;left:10px;background:rgba(0,0,0,0.25);padding:8px 10px;border-radius:10px;font-size:13px;color:var(--muted)}
+
+/* mobile tweak */
+@media (max-width:520px){.arena{height:420px}.boss{width:120px;height:120px}.boss.small{width:92px;height:92px}}
+
+  </style>
+</head>
+<body>
+  <div class="game-wrap">
+    <header>
+      <h1>🎯 Splash the Boss</h1>
+      <div class="controls">
+        <div class="hud">
+          <div class="counter">Mud<br><b id="mudCount">0</b></div>
+          <div class="counter">Punches<br><b id="punchCount">0</b></div>
+          <div class="counter">Score<br><b id="score">0</b></div>
+        </div>
+        <button id="startBtn" class="btn">Start</button>
+        <button id="pauseBtn" class="btn">Pause</button>
+        <button id="resetBtn" class="btn">Reset</button>
+      </div>
+    </header><div class="arena" id="arena">
+  <div class="hint">Slide the boss head left/right to catch falling items. Use mouse or touch.</div>
+  <div id="confetti" class="confetti"></div>
+
+  <!-- boss head - replace boss.png in repo with your boss photo -->
+  <div id="boss" class="boss">
+    <img id="bossImg" src="boss.png" alt="Boss (replace boss.png in repo)">
+  </div>
+
+</div>
+
+<footer style="margin-top:10px;font-size:13px;color:var(--muted)">
+  Tip: Put your boss photo in the repo as <code>boss.png</code>. Optional sound files: <code>splash.mp3</code> and <code>punch.mp3</code> in same folder. Deploy to GitHub Pages.
+</footer>
+
+  </div>  <script>
+  // Game config
+  const CONFIG = {
+    spawnInterval: 900, // ms between spawns (will speed up)
+    gravity: 0.9,
+    maxSpeed: 12,
+    arenaPadding: 12,
+    bossFilename: 'boss.png',
+    splashSound: 'splash.mp3',
+    punchSound: 'punch.mp3'
+  }
+
+  // state
+  const state = {running:false,items:[],mud:0,punch:0,score:0,spawnTimer:0,lastSpawn:0,spawnGap:CONFIG.spawnInterval}
+
+  // DOM
+  const arena = document.getElementById('arena')
+  const boss = document.getElementById('boss')
+  const bossImg = document.getElementById('bossImg')
+  const mudCount = document.getElementById('mudCount')
+  const punchCount = document.getElementById('punchCount')
+  const scoreEl = document.getElementById('score')
+  const startBtn = document.getElementById('startBtn')
+  const pauseBtn = document.getElementById('pauseBtn')
+  const resetBtn = document.getElementById('resetBtn')
+  const confetti = document.getElementById('confetti')
+
+  // try to load sounds (optional)
+  let splashAudio = null, punchAudio = null
+  function tryLoadAudio(){
+    try{ splashAudio = new Audio(CONFIG.splashSound); } catch(e){splashAudio=null}
+    try{ punchAudio = new Audio(CONFIG.punchSound); } catch(e){punchAudio=null}
+  }
+  tryLoadAudio()
+
+  // utility
+  function rand(min,max){return Math.random()*(max-min)+min}
+
+  // spawn item
+  function spawnItem(){
+    // choose type by weight
+    const r = Math.random()
+    const type = r < 0.65 ? 'mud' : 'punch' // more mud
+    const el = document.createElement('div')
+    el.className = 'item '+type
+    el.dataset.type = type
+    el.style.left = rand(20, arena.clientWidth-60) + 'px'
+
+    if(type==='mud'){
+      el.innerHTML = '💩' // mud emoji — use as mud
+      el.classList.add('mud')
+      el.speed = rand(2.2,4.5)
+      el.points = 5
+    } else {
+      el.innerHTML = '👊' // punch emoji
+      el.classList.add('punch')
+      el.speed = rand(3.6,6.2)
+      el.points = 10
+    }
+
+    el.y = -80
+    arena.appendChild(el)
+    state.items.push(el)
+  }
+
+  // main loop
+  let lastFrame = performance.now()
+  function loop(now){
+    const dt = Math.min(40, now - lastFrame)
+    lastFrame = now
+
+    if(state.running){
+      // spawn logic (speeds up slowly)
+      state.spawnTimer += dt
+      if(state.spawnTimer > state.spawnGap){
+        spawnItem();
+        state.spawnTimer = 0
+        // slowly speed up the spawn gap
+        state.spawnGap = Math.max(350, CONFIG.spawnInterval - Math.floor(state.score/15)*20)
+      }
+
+      // update items
+      for(let i = state.items.length-1; i>=0; i--){
+        const it = state.items[i]
+        it.y += it.speed
+        it.style.top = it.y + 'px'
+
+        // rotate and sway
+        const rot = Math.sin((it.y/45) + i) * 18
+        it.style.transform = `translateY(0) rotate(${rot}deg)`
+
+        // collision with boss
+        const bossRect = boss.getBoundingClientRect()
+        const itemRect = it.getBoundingClientRect()
+        if(isColliding(bossRect, itemRect)){
+          // collect
+          collectItem(it)
+          continue
+        }
+
+        // removed if falls below arena
+        if(it.y > arena.clientHeight + 80){
+          it.remove()
+          state.items.splice(i,1)
+        }
+      }
+    }
+    requestAnimationFrame(loop)
+  }
+
+  function isColliding(a,b){
+    return !(b.left > a.right || b.right < a.left || b.top > a.bottom || b.bottom < a.top)
+  }
+
+  function collectItem(el){
+    const type = el.dataset.type
+    if(type==='mud'){
+      state.mud += 1
+      state.score += el.points
+      if(splashAudio){ splashAudio.currentTime=0; splashAudio.play().catch(()=>{}) }
+      showSplash(el)
+    } else {
+      state.punch += 1
+      state.score += el.points
+      if(punchAudio){ punchAudio.currentTime=0; punchAudio.play().catch(()=>{}) }
+      showPunch(el)
+    }
+    updateHUD()
+    // remove element
+    el.remove()
+    const idx = state.items.indexOf(el)
+    if(idx>-1) state.items.splice(idx,1)
+  }
+
+  function updateHUD(){ mudCount.textContent = state.mud; punchCount.textContent = state.punch; scoreEl.textContent = state.score }
+
+  // visual effects
+  function showSplash(el){
+    // a transient splat on boss
+    const splat = document.createElement('div')
+    splat.style.position='absolute'
+    splat.style.width='26px'; splat.style.height='26px'
+    splat.style.left = (boss.offsetLeft + boss.clientWidth/2 - 13 + rand(-40,40)) + 'px'
+    splat.style.top = (boss.offsetTop + rand(20,90)) + 'px'
+    splat.style.background = 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.6), rgba(255,255,255,0.1))'
+    splat.style.borderRadius='50%'
+    splat.style.opacity='0.95'
+    splat.style.transform='scale(0.6)'
+    splat.style.pointerEvents='none'
+    confetti.appendChild(splat)
+    setTimeout(()=>{splat.style.transition='all 700ms ease';splat.style.opacity=0;splat.style.transform='scale(1.8)';},20)
+    setTimeout(()=>splat.remove(),900)
+  }
+  function showPunch(el){
+    // flash and small shake
+    boss.animate([{transform:'translateX(-50%) scale(1)'},{transform:'translateX(-50%) scale(1.08) rotate(-6deg)'},{transform:'translateX(-50%) scale(1)'}],{duration:260,iterations:1})
+    const pop = document.createElement('div')
+    pop.style.position='absolute'
+    pop.style.left = (el.offsetLeft) + 'px'
+    pop.style.top = (el.offsetTop) + 'px'
+    pop.textContent = 'BOOM'
+    pop.style.pointerEvents='none'
+    pop.style.fontWeight='700'
+    pop.style.opacity='0.95'
+    pop.style.padding='6px 8px'
+    pop.style.borderRadius='8px'
+    pop.style.background='rgba(255,255,255,0.06)'
+    confetti.appendChild(pop)
+    setTimeout(()=>{pop.style.transition='all 700ms ease';pop.style.opacity=0;pop.style.transform='translateY(-20px)'},20)
+    setTimeout(()=>pop.remove(),900)
+  }
+
+  // input handling for sliding boss
+  let dragging = false, dragX = 0
+  function onPointerDown(e){dragging=true; arena.setPointerCapture && arena.setPointerCapture(e.pointerId); dragX = getClientX(e)}
+  function onPointerMove(e){ if(!dragging) return; const x = getClientX(e); moveBossBy(x - dragX); dragX = x }
+  function onPointerUp(e){ dragging=false; arena.releasePointerCapture && arena.releasePointerCapture(e.pointerId) }
+
+  function getClientX(e){ if(e.touches) return e.touches[0].clientX; return e.clientX }
+  function moveBossBy(dx){ const rect = arena.getBoundingClientRect(); const brect = boss.getBoundingClientRect(); const center = brect.left + brect.width/2 + dx; const min = rect.left + CONFIG.arenaPadding; const max = rect.right - CONFIG.arenaPadding; const clamped = Math.min(max, Math.max(min, center)); const percent = (clamped - rect.left) / rect.width * 100; boss.style.left = percent + '%'; }
+
+  // keyboard support
+  document.addEventListener('keydown', e=>{
+    if(e.key==='ArrowLeft') moveBossBy(-36)
+    if(e.key==='ArrowRight') moveBossBy(36)
+  })
+
+  // attach pointer listeners to arena
+  arena.addEventListener('pointerdown', onPointerDown)
+  arena.addEventListener('pointermove', onPointerMove)
+  arena.addEventListener('pointerup', onPointerUp)
+  arena.addEventListener('pointercancel', onPointerUp)
+
+  // touch fallback
+  arena.addEventListener('touchstart', onPointerDown)
+  arena.addEventListener('touchmove', onPointerMove)
+  arena.addEventListener('touchend', onPointerUp)
+
+  // controls
+  startBtn.addEventListener('click', ()=>{ state.running=true; startBtn.disabled=true; pauseBtn.disabled=false; tryLoadAudio(); })
+  pauseBtn.addEventListener('click', ()=>{ state.running=false; startBtn.disabled=false; pauseBtn.disabled=true })
+  resetBtn.addEventListener('click', ()=>{ resetGame() })
+
+  function resetGame(){
+    state.running=false; state.items.forEach(it=>it.remove()); state.items=[]; state.mud=0; state.punch=0; state.score=0; state.spawnGap=CONFIG.spawnInterval; updateHUD(); startBtn.disabled=false; pauseBtn.disabled=true }
+
+  // initialize
+  resetGame();
+  // make boss slightly smaller by default
+  boss.classList.add('small')
+
+  // try to detect boss image load error and show placeholder
+  bossImg.addEventListener('error', ()=>{
+    bossImg.src = ''
+    bossImg.style.background = 'linear-gradient(180deg,#cfd8dc,#eceff1)'
+    bossImg.alt = 'Please add boss.png to repo'
+    bossImg.style.display='block'
+    boss.innerHTML = '<div style="text-align:center;padding:10px;color:#102028;font-weight:700">Add boss.png</div>'
+  })
+
+  // start loop
+  requestAnimationFrame(loop)
+  </script></body>
+</html>
